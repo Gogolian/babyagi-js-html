@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BabyAGI</title>
+    <style>
+      body {
+        background-color: #343541;
+        font-family: Arial, sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        margin: 0;
+      }
+      .wrapper {
+        max-width: 800px;
+        width: 100%;
+      }
+      .options {
+        text-align: center;
+      }
+      label {
+        color: white;
+        margin-bottom: 10px;
+      }
+      input {
+        border-radius: 5px;
+        padding: 5px;
+        margin-bottom: 10px;
+      }
+      .terminal {
+        margin-top: 20px;
+        background-color: black;
+        color: white;
+        min-width: 100%;
+        min-height: 200px;
+        padding: 10px;
+        font-size: smaller;
+        overflow-y: scroll;
+        display: none;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrapper">
+      <div class="options" id="options">
+        <label for="apiKey">OpenAI API Key:</label>
+        <br />
+        <input type="text" type="password" id="apiKey" />
+        <br />
+        <label for="objective">Objective:</label>
+        <br />
+        <input type="text" id="objective" value="Solve world poverty." />
+        <br />
+        <button id="runButton">Run</button>
+        <br />
+      </div>
+      <pre class="terminal" id="terminal"></pre>
+    </div>
+    <script>
+      const terminal = document.getElementById("terminal");
+
+      let OPENAI_API_KEY = "";
+
+      function log(msg) {
+        terminal.textContent = terminal.textContent + "\n" + msg;
+      }
+
+      document
+        .getElementById("runButton")
+        .addEventListener("click", function () {
+          terminal.style.display = "block";
+          document.getElementById("options").style.display = "none";
+
+          log("Initializing BabyAGI Instance...");
+
+          OPENAI_API_KEY = document.getElementById("apiKey").value;
+
+          mainLoop();
+        });
+
+      // MAIN CODE
+
+      const taskList = [];
+
+      function addTask(task) {
+        taskList.push(task);
+      }
+
+      async function createCompletion(inputObject) {
+        const apiUrl = "https://api.openai.com/v1/engines/" + inputObject.model + "/completions";
+
+        const response = await fetch(apiUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + OPENAI_API_KEY,
+          },
+          body: JSON.stringify({
+            prompt: inputObject.prompt || '',
+            temperature: inputObject.temperature || 0,
+            max_tokens: inputObject.maxTokens || 7,
+            top_p: inputObject.top || 1,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        return data;
+      }
+
+      async function createTask(prompt) {
+        const completion = await createCompletion({
+          model: "text-davinci-003",
+          prompt,
+          temperature: 0.5,
+          max_tokens: 100,
+          top_p: 1,
+        });
+        return completion.data.choices[0].text.trim().split("\n");
+      }
+
+      async function taskCreationAgent(
+        objective,
+        result,
+        taskDescription,
+        taskList
+      ) {
+        const prompt = `You are an task creation AI that uses the result of an execution agent to create new tasks with the following objective: ${objective}, The last completed task has the result: ${result}. This result was based on this task description: ${taskDescription}. These are incomplete tasks: ${taskList.join(
+          ", "
+        )}. Based on the result, create new tasks to be completed by the AI system that do not overlap with incomplete tasks. Return the tasks as an array.`;
+        const newTasks = await createTask(prompt);
+        return newTasks.map((taskName) => ({ task_name: taskName }));
+      }
+
+      async function prioritizationAgent(thisTaskId) {
+        const taskNames = taskList.map((t) => t.task_name);
+        const nextTaskId = thisTaskId + 1;
+        const prompt = `You are an task prioritization AI tasked with cleaning the formatting of and reprioritizing the following tasks: ${taskNames}. Consider the ultimate objective of your team: ${OBJECTIVE}. Do not remove any tasks. Return the result as a numbered list, like:
+    #. First task
+    #. Second task
+    Start the task list with number ${nextTaskId}.`;
+        const newTasks = await createTask(prompt);
+        taskList.length = 0;
+        newTasks.forEach((taskString) => {
+          const taskParts = taskString.trim().split(".", 1);
+          if (taskParts.length === 2) {
+            const taskId = parseInt(taskParts[0].trim(), 10);
+            const taskName = taskParts[1].trim();
+            taskList.push({ task_id: taskId, task_name: taskName });
+          }
+        });
+      }
+
+      async function executionAgent(objective, task) {
+        const completion = await createCompletion({
+          model: "text-davinci-003",
+          prompt: `You are an AI who performs one task based on the following objective: ${objective}. Your task: ${task}\nResponse:`,
+          temperature: 0.7,
+          max_tokens: 2000,
+          top_p: 1,
+        });
+        return completion.data.choices[0].text.trim();
+      }
+
+      // Add the first task
+      const firstTask = {
+        task_id: 1,
+        task_name: "Develop a task list.",
+      };
+
+      const OBJECTIVE = document.getElementById('objective').value
+
+      addTask(firstTask);
+
+      // Main loop
+      async function mainLoop() {
+        let task_id_counter = 1;
+        while (true) {
+          if (taskList.length) {
+            // Print the task list
+            log("\x1b[95m\x1b[1m" + "\nTASK LIST\n" + "\x1b[0m\x1b[0m");
+            taskList.forEach((t) => {
+              log(t.task_id + ": " + t.task_name);
+            });
+
+            // Step 1: Pull the first task
+            const task = taskList.shift();
+            log(
+              "\x1b[92m\x1b[1m" + "\n*****NEXT TASK*****\n" + "\x1b[0m\x1b[0m"
+            );
+            log(task.task_id + ": " + task.task_name);
+
+            // Send to execution function to complete the task based on the context
+            const result = await executionAgent(OBJECTIVE, task.task_name);
+            const thisTaskId = task.task_id;
+            log(
+              "\x1b[93m\x1b[1m" + "\n*****TASK RESULT*****\n" + "\x1b[0m\x1b[0m"
+            );
+            log(result);
+
+            // Step 2: Enrich result and store in Pinecone (Update this section once Pinecone JavaScript library is available)
+            const enrichedResult = { data: result };
+
+            // Step 3: Create new tasks and reprioritize task list
+            const newTasks = await taskCreationAgent(
+              OBJECTIVE,
+              enrichedResult,
+              task.task_name,
+              taskList.map((t) => t.task_name)
+            );
+
+            for (const newTask of newTasks) {
+              task_id_counter += 1;
+              newTask.task_id = task_id_counter;
+              addTask(newTask);
+            }
+
+            await prioritizationAgent(thisTaskId);
+
+            // Sleep before checking the task list again
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          } else {
+            // Sleep if the task list is empty
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          }
+        }
+      }
+    </script>
+  </body>
+</html>
