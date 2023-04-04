@@ -16,3 +16,7 @@ Checkout my other project https://github.com/Gogolian/open-humanity (I dont want
 The fist step we need to do is to write contributor guidelines.
 
 #our code
+
+
+## A roadmap to ToddlerAGI:
+![Roadmap to ToddlerAGI](toddlerAGIroadmap.png)
